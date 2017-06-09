@@ -1,0 +1,21 @@
+{
+  "name": "bluemixchess",
+  "version": "1.0.0",
+  "description": "Play chess on Bluemix",
+  "main": "index.html",
+  "dependencies": {
+    "http-server": "^0.8.4"
+  },
+  "devDependencies": {},
+  "scripts": {
+    "prestart": "cp `find bower_components -name *.min.js` public/js",
+    "start": "http-server -p $VCAP_APP_PORT"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://hub.jazz.net/project/esrose/bluemixchess/overview",
+    "env": "env"
+  },
+  "author": "Eric S Rose <esrose@us.ibm.com>",
+  "license": "MIT"
+}

@@ -1,0 +1,163 @@
+---
+stages:
+- name: Fetch Containers Dependencies
+  inputs:
+  - type: git
+    branch: master
+  jobs:
+  - name: Fetch Dependencies
+    type: builder
+    build_type: shell
+    script: |-
+      #!/bin/bash
+      wget https://github.com/joewalnes/websocketd/releases/download/v0.2.11/websocketd-0.2.11-linux_amd64.zip
+      unzip -o websocketd-0.2.11-linux_amd64.zip
+      wget https://stockfish.s3.amazonaws.com/stockfish-6-linux.zip
+      unzip -o stockfish-6-linux.zip
+      cp stockfish-6-linux/Linux/stockfish_6_x64 .
+- name: Build Stockfish Docker Image
+  inputs:
+  - type: job
+    stage: Fetch Containers Dependencies
+    job: Fetch Dependencies
+  triggers:
+  - type: stage
+  jobs:
+  - name: Build Image
+    type: builder
+    extension_id: ibm.devops.services.pipeline.container.builder
+    target:
+      url: https://api.ng.bluemix.net
+      organization: esrose@us.ibm.com
+      space: dev
+    IMAGE_NAME: stockfish
+    USE_CACHED_LAYERS: 'true'
+    COMMAND: "#!/bin/bash\n# The following colors have been defined to help with presentation\
+      \ of logs: green, red, label_color, no_color.  \nlog_and_echo \"$LABEL\" \"\
+      Starting build script\"\n\n# The IBM Container Service CLI (ice), Git client\
+      \ (git), IDS Inventory CLI (ids-inv) and Python 2.7.3 (python) have been installed.\n\
+      # Based on the organization and space selected in the Job credentials are in\
+      \ place for both IBM Container Service and IBM Bluemix \n\n######################################\n\
+      # Build Container via Dockerfile     #\n######################################\n\
+      \n# REGISTRY_URL=${CCS_REGISTRY_HOST}/${NAMESPACE}\n# FULL_REPOSITORY_NAME=${REGISTRY_URL}/${IMAGE_NAME}:${APPLICATION_VERSION}\n\
+      # If you wish to receive slack notifications, set SLACK_WEBHOOK_PATH as a property\
+      \ on the stage.\n\nif [ -f Dockerfile ]; then \n    log_and_echo \"$LABEL\"\
+      \ \"Building ${FULL_REPOSITORY_NAME}\"\n    ${EXT_DIR}/utilities/sendMessage.sh\
+      \ -l info -m \"New container build requested for ${FULL_REPOSITORY_NAME}\"\n\
+      \    # build image\n    BUILD_COMMAND=\"\"\n    if [ \"${USE_CACHED_LAYERS}\"\
+      \ == \"true\" ]; then \n        BUILD_COMMAND=\"build --pull --tag ${FULL_REPOSITORY_NAME}\
+      \ ${WORKSPACE}\"\n        ice_retry ${BUILD_COMMAND}\n        RESULT=$?\n  \
+      \  else \n        BUILD_COMMAND=\"build --no-cache --tag ${FULL_REPOSITORY_NAME}\
+      \ ${WORKSPACE}\"\n        ice_retry ${BUILD_COMMAND}\n        RESULT=$?\n  \
+      \  fi \n\n    if [ $RESULT -ne 0 ]; then\n        log_and_echo \"$ERROR\" \"\
+      Error building image\"\n        ice info \n        ice images\n        ${EXT_DIR}/print_help.sh\n\
+      \        ${EXT_DIR}/utilities/sendMessage.sh -l bad -m \"Container build of\
+      \ ${FULL_REPOSITORY_NAME} failed. $(get_error_info)\"\n        exit 1\n    else\n\
+      \        log_and_echo \"$SUCCESSFUL\" \"Container build of ${FULL_REPOSITORY_NAME}\
+      \ was successful\"\n        ${EXT_DIR}/utilities/sendMessage.sh -l good -m \"\
+      Container build of ${FULL_REPOSITORY_NAME} was successful\"\n    fi  \nelse\
+      \ \n    log_and_echo \"$ERROR\" \"Dockerfile not found in project\"\n    ${EXT_DIR}/utilities/sendMessage.sh\
+      \ -l bad -m \"Failed to get Dockerfile. $(get_error_info)\"\n    exit 1\nfi\
+      \  \n\n######################################################################################\n\
+      # Copy any artifacts that will be needed for deployment and testing to $WORKSPACE\
+      \    #\n######################################################################################\n\
+      echo \"IMAGE_NAME=${FULL_REPOSITORY_NAME}\" >> $ARCHIVE_DIR/build.properties"
+- name: Deploy to Container Service
+  inputs:
+  - type: job
+    stage: Build Stockfish Docker Image
+    job: Build Image
+  triggers:
+  - type: stage
+  properties:
+  - name: CONTAINER_SIZE
+    value: small
+    type: text
+  jobs:
+  - name: Deploy Container
+    type: deployer
+    extension_id: ibm.devops.services.pipeline.docker.deploy.ice
+    target:
+      url: https://api.ng.bluemix.net
+      organization: esrose@us.ibm.com
+      space: dev
+    PORT: '8080'
+    DEPLOY_TYPE: red_black
+    CONTAINER_NAME: bluemixchess
+    COMMAND: "#!/bin/bash\n# The following are some example deployment scripts.  Use\
+      \ these as is or fork them and include your updates here:\necho -e \"${label_color}Starting\
+      \ deployment script${no_color}\"\n\n# To view/fork this script goto: https://github.com/Osthanes/deployscripts\n\
+      # git_retry will retry git calls to prevent pipeline failure on temporary github\
+      \ problems\n# the code can be found in git_util.sh at https://github.com/Osthanes/container_deployer\n\
+      git_retry clone https://github.com/Osthanes/deployscripts.git deployscripts\n\
+      \n# Deploy with containers:\n# Optional environment properties (can be set directly\
+      \ in this script, or defined as environment properties):\n#      NAME      \
+      \        Value         Description\n#   =============      =========     ==============\n\
+      #   BIND_TO             String       Specify a Bluemix application name that\
+      \ whose bound services you wish to make available to the container.  By default\
+      \ this is not set.\n#   CONTAINER_SIZE      String       Specify container size:\
+      \ pico (64), nano (128), micro (256), tiny (512), small (1024), medium (2048),\n\
+      #                                                            large (4096), x-large\
+      \ (8192), 2x-large (16384).\n#                                    Default is\
+      \ micro (256).\n#   CONCURRENT_VERSIONS Number       Number of versions of this\
+      \ container to leave active.  \n#                                    Default\
+      \ is 1\n#\n/bin/bash deployscripts/deploycontainer.sh\n\nRESULT=$?\n\n# source\
+      \ the deploy property file\nif [ -f \"${DEPLOY_PROPERTY_FILE}\" ]; then\n  source\
+      \ \"$DEPLOY_PROPERTY_FILE\"\nfi\n\n#########################\n# Environment\
+      \ DETAILS   #\n#########################\n# The environment has been setup.\n\
+      # The Cloud Foundry CLI (cf), IBM Container Service CLI (ice), Git client (git),\
+      \ IDS Inventory CLI (ids-inv) and Python 2.7.3 (python) have been installed.\n\
+      # Based on the organization and space selected in the Job credentials are in\
+      \ place for both IBM Container Service and IBM Bluemix\n\n# The following colors\
+      \ have been defined to help with presentation of logs: green, red, label_color,\
+      \ no_color.\nif [ $RESULT -ne 0 ]; then\n    echo -e \"${red}Executed failed\
+      \ or had warnings ${no_color}\"\n    ${EXT_DIR}/print_help.sh\n    exit $RESULT\n\
+      fi\necho -e \"${green}Execution complete${no_label}\""
+- name: Fetch JavaScript Dependencies
+  inputs:
+  - type: git
+    branch: master
+  triggers:
+  - type: stage
+  jobs:
+  - name: Fetch Dependencies
+    type: builder
+    extension_id: ibm.devops.services.pipeline.container.builder
+    target:
+      url: https://api.ng.bluemix.net
+      organization: esrose@us.ibm.com
+      space: dev
+    IMAGE_NAME: bluemixchess
+    USE_CACHED_LAYERS: 'true'
+    COMMAND: "#!/bin/bash\n# The following colors have been defined to help with presentation\
+      \ of logs: green, red, label_color, no_color.  \nlog_and_echo \"$LABEL\" \"\
+      Starting build script\"\n\n# The IBM Container Service CLI (ice), Git client\
+      \ (git), IDS Inventory CLI (ids-inv) and Python 2.7.3 (python) have been installed.\n\
+      # Based on the organization and space selected in the Job credentials are in\
+      \ place for both IBM Container Service and IBM Bluemix \n\nwget http://chessboardjs.com/releases/0.3.0/chessboardjs-0.3.0.zip\n\
+      unzip -o chessboardjs-0.3.0.zip -d app/public\nnpm install bower\n(cd app ;\
+      \ ../node_modules/bower/bin/bower --config.interactive=false install)\n\nmv\
+      \ app $ARCHIVE_DIR\n\n######################################################################################\n\
+      # Copy any artifacts that will be needed for deployment and testing to $WORKSPACE\
+      \    #\n######################################################################################\n\
+      ice inspect `ice ps | grep \"$IMAGE_NAME\" | cut -d' ' -f1` | sed -En 's/\\\
+      s*\\\"PublicIpAddress\": \\\"(.+)\\\"/\\1/p' | tr -d '\\n' > $ARCHIVE_DIR/build.properties"
+- name: Deploy Chess UI to Bluemix
+  inputs:
+  - type: job
+    stage: Fetch JavaScript Dependencies
+    job: Fetch Dependencies
+  triggers:
+  - type: stage
+  jobs:
+  - name: CF Push
+    type: deployer
+    target:
+      url: https://api.ng.bluemix.net
+      organization: esrose@us.ibm.com
+      space: dev
+    script: |-
+      #!/bin/bash
+      UNIQUE_APP_NAME=`echo "$IDS_PROJECT_NAME" | sed -E -e 's/.+ \| //'`
+      perl -p -i -e 's/\@\@\@CONTAINER_IP\@\@\@/`cat build.properties`/eg' app/public/BluemixChess.js
+      cf push "$UNIQUE_APP_NAME" -n "$UNIQUE_APP_NAME" -f app/manifest.yml

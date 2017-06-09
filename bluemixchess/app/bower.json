@@ -1,0 +1,23 @@
+{
+  "name": "bluemixchess",
+  "homepage": "https://hub.jazz.net/project/esrose/bluemixchess/overview",
+  "version": "1.0.0",
+  "authors": [
+    "Eric S Rose <esrose@us.ibm.com>"
+  ],
+  "description": "Play chess on Bluemix",
+  "main": "",
+  "license": "MIT",
+  "private": true,
+  "ignore": [
+    "**/.*",
+    "node_modules",
+    "bower_components"
+  ],
+  "dependencies": {
+    "json3": "3.3.2",
+    "jquery": "2.1.4",
+    "chess.js": "0.9.1",
+    "sockjs-client": "1.0.3"
+  }
+}
